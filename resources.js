@@ -295,7 +295,6 @@ const memory_array_buffers_gauge = new Prometheus.Gauge({
   labelNames: [],
 });
 
-//logic to create a settings.json file if one does not exist
 if (server.workerIndex == 0) {
   let getCount = await PrometheusExporterSettings.getRecordCount({
     exactCount: false,
