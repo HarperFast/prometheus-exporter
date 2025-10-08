@@ -13,5 +13,6 @@
   },
   "devDependencies": {
     "@harperdb/code-guidelines": "0.0.2"
-  }
+  },
+  "license": "Apache-2.0"
 }
