@@ -295,7 +295,6 @@ const memory_array_buffers_gauge = new Prometheus.Gauge({
   labelNames: [],
 });
 
-//logic to create a settings.json file if one does not exist
 if (server.workerIndex == 0) {
   let getCount = await PrometheusExporterSettings.getRecordCount({
     exactCount: false,
@@ -879,10 +878,14 @@ async function generateMetricsFromAnalytics(notFast) {
           );
           //needs to be a new line after every metric
           break;
-        case "replication-latency":
+        case "replication-latency": {
           let m_name = "replication_latency";
-          // Split by '.' on the path value from the metric to get origin, database and table
-          let [txn, database, table, origin] = metric.path?.split(".");
+          // the path value is a .-delimited remoteNode.database.table value, but the node is an FQDN so we need to pop
+          // the table and database values off of the end and then re-join what is left as the node value
+          let path = metric.path?.split(".");
+          let table = path?.pop();
+          let database = path?.pop();
+          let origin = path.join(".");
           origin = origin?.replace("-leaf", "");
           output.push(`# HELP ${m_name} Replication latency`);
           output.push(`# TYPE ${m_name} summary`);
@@ -919,6 +922,7 @@ async function generateMetricsFromAnalytics(notFast) {
             `${m_name}_count{origin="${origin}",database="${database}",table="${table}"} ${metric.count}`,
           );
           break;
+        }
         default:
           if (notFast && customMetrics) {
             await outputCustomMetrics(customMetrics, metric, output);
