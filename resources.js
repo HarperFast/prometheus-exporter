@@ -741,11 +741,15 @@ async function generateMetricsFromAnalytics(notFast) {
           );
           break;
         case "TTFB":
-        case "duration":
-          output.push(
-            `# HELP ${metric.metric} Time for Harper to execute request in ms`,
-          );
-          output.push(`# TYPE ${metric.metric} summary`);
+        case "duration": {
+          const durationHelp = `# HELP ${metric.metric} Time for Harper to execute request in ms`;
+          if (!output.includes(durationHelp)) {
+            output.push(durationHelp);
+          }
+          const durationType = `# TYPE ${metric.metric} summary`;
+          if (!output.includes(durationType)) {
+            output.push(durationType);
+          }
           output.push(
             `${metric.metric}{quantile="0.01",type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.p1}`,
           );
@@ -777,6 +781,7 @@ async function generateMetricsFromAnalytics(notFast) {
             `${metric.metric}_count{type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.count}`,
           );
           break;
+        }
         case "cache-resolution":
           //prometheus doesn't like hyphens in metric names
           let metric_name = "cache_resolution";
