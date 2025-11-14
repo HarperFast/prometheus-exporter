@@ -942,7 +942,7 @@ async function generateMetricsFromAnalytics(notFast) {
           let path = metric.path?.split(".");
           let table = path?.pop();
           let database = path?.pop();
-          let origin = path.join(".");
+          let origin = path?.join(".");
           origin = origin?.replace("-leaf", "");
           output.set(`# HELP ${m_name} Replication latency`, null);
           output.set(`# TYPE ${m_name} summary`, null);
