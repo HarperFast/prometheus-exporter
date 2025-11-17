@@ -625,8 +625,20 @@ class metrics extends Resource {
     const output = await generateMetricsFromAnalytics(notFast);
     const prom_results = await Prometheus.register.metrics();
 
-    if (output.length > 0) {
-      return output.join("\n") + "\n" + prom_results;
+    if (output.size > 0) {
+      return (
+        Array.from(
+          output.keys().map((k) => {
+            const value = output.get(k);
+            if (value === null) {
+              return k;
+            }
+            return `${k} ${value}`;
+          }),
+        ).join("\n") +
+        "\n" +
+        prom_results
+      );
     } else {
       return prom_results;
     }
@@ -638,11 +650,19 @@ async function generateMetricsFromAnalytics(notFast) {
   const start_at = end_at - AGGREGATE_PERIOD_MS * 1.5;
   let results = await hdb_analytics.search({
     conditions: [
-      { attribute: "id", value: [start_at, end_at], comparator: "between" },
+      {
+        attribute: "id",
+        value: [start_at, end_at],
+        comparator: "between",
+        sort: { attribute: "id", descending: true }, // so "last wins" in output gets us the earliest metric
+      },
     ],
   });
 
-  const output = [];
+  // keys are metric name + labels (all one string)
+  // values are metric value or null if none (for e.g. HELP & TYPE outputs)
+  // this is b/c Prometheus doesn't like duplicates that only vary in value
+  const output = new Map();
   const customMetrics = (await PrometheusExporterSettings.get("customMetrics"))
     ?.value;
 
@@ -742,77 +762,102 @@ async function generateMetricsFromAnalytics(notFast) {
           break;
         case "TTFB":
         case "duration":
-          output.push(
+          output.set(
             `# HELP ${metric.metric} Time for Harper to execute request in ms`,
+            null,
           );
-          output.push(`# TYPE ${metric.metric} summary`);
-          output.push(
-            `${metric.metric}{quantile="0.01",type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.p1}`,
+          output.set(`# TYPE ${metric.metric} summary`, null);
+          output.set(
+            `${metric.metric}{quantile="0.01",type="${metric.type}",path="${metric.path}",method="${metric.method}"}`,
+            metric.p1,
           );
-          output.push(
-            `${metric.metric}{quantile="0.10",type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.p10}`,
+          output.set(
+            `${metric.metric}{quantile="0.10",type="${metric.type}",path="${metric.path}",method="${metric.method}"}`,
+            metric.p10,
           );
-          output.push(
-            `${metric.metric}{quantile="0.25",type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.p25}`,
+          output.set(
+            `${metric.metric}{quantile="0.25",type="${metric.type}",path="${metric.path}",method="${metric.method}"}`,
+            metric.p25,
           );
-          output.push(
-            `${metric.metric}{quantile="0.50",type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.median}`,
+          output.set(
+            `${metric.metric}{quantile="0.50",type="${metric.type}",path="${metric.path}",method="${metric.method}"}`,
+            metric.median,
           );
-          output.push(
-            `${metric.metric}{quantile="0.75",type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.p75}`,
+          output.set(
+            `${metric.metric}{quantile="0.75",type="${metric.type}",path="${metric.path}",method="${metric.method}"}`,
+            metric.p75,
           );
-          output.push(
-            `${metric.metric}{quantile="0.90",type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.p90}`,
+          output.set(
+            `${metric.metric}{quantile="0.90",type="${metric.type}",path="${metric.path}",method="${metric.method}"}`,
+            metric.p90,
           );
-          output.push(
-            `${metric.metric}{quantile="0.95",type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.p95}`,
+          output.set(
+            `${metric.metric}{quantile="0.95",type="${metric.type}",path="${metric.path}",method="${metric.method}"}`,
+            metric.p95,
           );
-          output.push(
-            `${metric.metric}{quantile="0.99",type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.p99}`,
+          output.set(
+            `${metric.metric}{quantile="0.99",type="${metric.type}",path="${metric.path}",method="${metric.method}"}`,
+            metric.p99,
           );
-          output.push(
-            `${metric.metric}_sum{type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.mean * metric.count}`,
+          output.set(
+            `${metric.metric}_sum{type="${metric.type}",path="${metric.path}",method="${metric.method}"}`,
+            metric.mean * metric.count,
           );
-          output.push(
-            `${metric.metric}_count{type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.count}`,
+          output.set(
+            `${metric.metric}_count{type="${metric.type}",path="${metric.path}",method="${metric.method}"}`,
+            metric.count,
           );
           break;
-        case "cache-resolution":
+        case "cache-resolution": {
           //prometheus doesn't like hyphens in metric names
           let metric_name = "cache_resolution";
-          output.push(`# HELP ${metric_name} Time to resolve a cache miss`);
-          output.push(`# TYPE ${metric_name} summary`);
-          output.push(
-            `${metric_name}{quantile="0.01",type="${metric.type}",table="${metric.path}"} ${metric.p1}`,
+          output.set(
+            `# HELP ${metric_name} Time to resolve a cache miss`,
+            null,
           );
-          output.push(
-            `${metric_name}{quantile="0.10",type="${metric.type}",table="${metric.path}"} ${metric.p10}`,
+          output.set(`# TYPE ${metric_name} summary`, null);
+          output.set(
+            `${metric_name}{quantile="0.01",type="${metric.type}",table="${metric.path}"}`,
+            metric.p1,
           );
-          output.push(
-            `${metric_name}{quantile="0.25",type="${metric.type}",table="${metric.path}"} ${metric.p25}`,
+          output.set(
+            `${metric_name}{quantile="0.10",type="${metric.type}",table="${metric.path}"}`,
+            metric.p10,
           );
-          output.push(
-            `${metric_name}{quantile="0.50",type="${metric.type}",table="${metric.path}"} ${metric.median}`,
+          output.set(
+            `${metric_name}{quantile="0.25",type="${metric.type}",table="${metric.path}"}`,
+            metric.p25,
           );
-          output.push(
-            `${metric_name}{quantile="0.75",type="${metric.type}",table="${metric.path}"} ${metric.p75}`,
+          output.set(
+            `${metric_name}{quantile="0.50",type="${metric.type}",table="${metric.path}"}`,
+            metric.median,
           );
-          output.push(
-            `${metric_name}{quantile="0.90",type="${metric.type}",table="${metric.path}"} ${metric.p90}`,
+          output.set(
+            `${metric_name}{quantile="0.75",type="${metric.type}",table="${metric.path}"}`,
+            metric.p75,
           );
-          output.push(
-            `${metric_name}{quantile="0.95",type="${metric.type}",table="${metric.path}"} ${metric.p95}`,
+          output.set(
+            `${metric_name}{quantile="0.90",type="${metric.type}",table="${metric.path}"}`,
+            metric.p90,
           );
-          output.push(
-            `${metric_name}{quantile="0.99",type="${metric.type}",table="${metric.path}"} ${metric.p99}`,
+          output.set(
+            `${metric_name}{quantile="0.95",type="${metric.type}",table="${metric.path}"}`,
+            metric.p95,
           );
-          output.push(
-            `${metric_name}_sum{type="${metric.type}",table="${metric.path}"} ${metric.mean * metric.count}`,
+          output.set(
+            `${metric_name}{quantile="0.99",type="${metric.type}",table="${metric.path}"}`,
+            metric.p99,
           );
-          output.push(
-            `${metric_name}_count{type="${metric.type}",table="${metric.path}"} ${metric.count}`,
+          output.set(
+            `${metric_name}_sum{type="${metric.type}",table="${metric.path}"}`,
+            metric.mean * metric.count,
+          );
+          output.set(
+            `${metric_name}_count{type="${metric.type}",table="${metric.path}"}`,
+            metric.count,
           );
           break;
+        }
         case "cache-hit":
           gaugeSet(cache_hits_gauge, { table: metric.path }, metric.total);
           gaugeSet(
@@ -844,39 +889,51 @@ async function generateMetricsFromAnalytics(notFast) {
           );
           break;
         case "transfer":
-          output.push(`# HELP ${metric.metric} Time to transfer request (ms)`);
-          output.push(`# TYPE ${metric.metric} summary`);
-          output.push(
-            `${metric.metric}{quantile="0.01",type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.p1}`,
+          output.set(
+            `# HELP ${metric.metric} Time to transfer request (ms)`,
+            null,
           );
-          output.push(
-            `${metric.metric}{quantile="0.10",type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.p10}`,
+          output.set(`# TYPE ${metric.metric} summary`, null);
+          output.set(
+            `${metric.metric}{quantile="0.01",type="${metric.type}",path="${metric.path}",method="${metric.method}"}`,
+            metric.p1,
           );
-          output.push(
-            `${metric.metric}{quantile="0.25",type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.p25}`,
+          output.set(
+            `${metric.metric}{quantile="0.10",type="${metric.type}",path="${metric.path}",method="${metric.method}"}`,
+            metric.p10,
           );
-          output.push(
-            `${metric.metric}{quantile="0.50",type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.median}`,
+          output.set(
+            `${metric.metric}{quantile="0.25",type="${metric.type}",path="${metric.path}",method="${metric.method}"}`,
+            metric.p25,
           );
-          output.push(
-            `${metric.metric}{quantile="0.75",type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.p75}`,
+          output.set(
+            `${metric.metric}{quantile="0.50",type="${metric.type}",path="${metric.path}",method="${metric.method}"}`,
+            metric.median,
           );
-          output.push(
-            `${metric.metric}{quantile="0.90",type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.p90}`,
+          output.set(
+            `${metric.metric}{quantile="0.75",type="${metric.type}",path="${metric.path}",method="${metric.method}"}`,
+            metric.p75,
           );
-          output.push(
-            `${metric.metric}{quantile="0.95",type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.p95}`,
+          output.set(
+            `${metric.metric}{quantile="0.90",type="${metric.type}",path="${metric.path}",method="${metric.method}"}`,
+            metric.p90,
           );
-          output.push(
-            `${metric.metric}{quantile="0.99",type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.p99}`,
+          output.set(
+            `${metric.metric}{quantile="0.95",type="${metric.type}",path="${metric.path}",method="${metric.method}"}`,
+            metric.p95,
           );
-          output.push(
-            `${metric.metric}_sum{type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.mean * metric.count}`,
+          output.set(
+            `${metric.metric}{quantile="0.99",type="${metric.type}",path="${metric.path}",method="${metric.method}"}`,
+            metric.p99,
           );
-          output.push(
-            `${metric.metric}_count{type="${metric.type}",path="${metric.path}",method="${metric.method}"} ${metric.count}`,
+          output.set(
+            `${metric.metric}_sum{type="${metric.type}",path="${metric.path}",method="${metric.method}"}`,
+            metric.mean * metric.count,
           );
-          //needs to be a new line after every metric
+          output.set(
+            `${metric.metric}_count{type="${metric.type}",path="${metric.path}",method="${metric.method}"}`,
+            metric.count,
+          );
           break;
         case "replication-latency": {
           let m_name = "replication_latency";
@@ -885,41 +942,51 @@ async function generateMetricsFromAnalytics(notFast) {
           let path = metric.path?.split(".");
           let table = path?.pop();
           let database = path?.pop();
-          let origin = path.join(".");
+          let origin = path?.join(".");
           origin = origin?.replace("-leaf", "");
-          output.push(`# HELP ${m_name} Replication latency`);
-          output.push(`# TYPE ${m_name} summary`);
-          output.push(
-            `${m_name}{quantile="0.01",origin="${origin}",database="${database}",table="${table}"} ${metric.p1}`,
+          output.set(`# HELP ${m_name} Replication latency`, null);
+          output.set(`# TYPE ${m_name} summary`, null);
+          output.set(
+            `${m_name}{quantile="0.01",origin="${origin}",database="${database}",table="${table}"}`,
+            metric.p1,
           );
-          output.push(
-            `${m_name}{quantile="0.10",origin="${origin}",database="${database}",table="${table}"} ${metric.p10}`,
+          output.set(
+            `${m_name}{quantile="0.10",origin="${origin}",database="${database}",table="${table}"}`,
+            metric.p10,
           );
-          output.push(
-            `${m_name}{quantile="0.25",origin="${origin}",database="${database}",table="${table}"} ${metric.p25}`,
+          output.set(
+            `${m_name}{quantile="0.25",origin="${origin}",database="${database}",table="${table}"}`,
+            metric.p25,
           );
-          output.push(
-            `${m_name}{quantile="0.50",origin="${origin}",database="${database}",table="${table}"} ${metric.median}`,
+          output.set(
+            `${m_name}{quantile="0.50",origin="${origin}",database="${database}",table="${table}"}`,
+            metric.median,
           );
-          output.push(
-            `${m_name}{quantile="0.75",origin="${origin}",database="${database}",table="${table}"} ${metric.p75}`,
+          output.set(
+            `${m_name}{quantile="0.75",origin="${origin}",database="${database}",table="${table}"}`,
+            metric.p75,
           );
-          output.push(
-            `${m_name}{quantile="0.90",origin="${origin}",database="${database}",table="${table}"} ${metric.p90}`,
+          output.set(
+            `${m_name}{quantile="0.90",origin="${origin}",database="${database}",table="${table}"}`,
+            metric.p90,
           );
-          output.push(
-            `${m_name}{quantile="0.95",origin="${origin}",database="${database}",table="${table}"} ${metric.p95}`,
+          output.set(
+            `${m_name}{quantile="0.95",origin="${origin}",database="${database}",table="${table}"}`,
+            metric.p95,
           );
-          output.push(
-            `${m_name}{quantile="0.99",origin="${origin}",database="${database}",table="${table}"} ${metric.p99}`,
+          output.set(
+            `${m_name}{quantile="0.99",origin="${origin}",database="${database}",table="${table}"}`,
+            metric.p99,
           );
 
           // Add sum and count
-          output.push(
-            `${m_name}_sum{origin="${origin}",database="${database}",table="${table}"} ${metric.mean * metric.count}`,
+          output.set(
+            `${m_name}_sum{origin="${origin}",database="${database}",table="${table}"}`,
+            metric.mean * metric.count,
           );
-          output.push(
-            `${m_name}_count{origin="${origin}",database="${database}",table="${table}"} ${metric.count}`,
+          output.set(
+            `${m_name}_count{origin="${origin}",database="${database}",table="${table}"}`,
+            metric.count,
           );
           break;
         }
@@ -942,48 +1009,60 @@ const gaugeSet = (gauge, options, value) => gauge?.set(options, value || 0);
  *
  * @param {Array} customMetrics - An array of custom metric objects, each containing metadata such as metric attributes, names, and help descriptions.
  * @param {Object} metric - An object containing metric data such as quantiles, mean, and count for the corresponding custom metrics.
- * @param {Array} output - An array to which the formatted metric data will be appended.
+ * @param {Map} output - A Map of metric names + labels (all one string) to metric values or null (for e.g. HELP / TYPE lines)
  * @return {void} No return value. The function modifies the `output` array directly by appending formatted metric strings.
  */
-async function outputCustomMetrics(customMetrics, metric, output) {
+function outputCustomMetrics(customMetrics, metric, output) {
   customMetrics.forEach((custom_metric) => {
     if (
       metric[custom_metric.get("metricAttribute")] === custom_metric.get("name")
     ) {
       const customMetricName = custom_metric.get("name").replace(/-/g, "_");
-      output.push(`# HELP ${customMetricName} ${custom_metric.get("help")}`);
-      output.push(`# TYPE ${customMetricName} summary`);
+      output.set(
+        `# HELP ${customMetricName} ${custom_metric.get("help")}`,
+        null,
+      );
+      output.set(`# TYPE ${customMetricName} summary`, null);
 
       const labels = buildCustomLabels(custom_metric, metric);
 
-      output.push(
-        `${customMetricName}{quantile="0.01",${labels}} ${metric.p1 ?? 0}`,
+      output.set(
+        `${customMetricName}{quantile="0.01",${labels}}`,
+        metric.p1 ?? 0,
       );
-      output.push(
-        `${customMetricName}{quantile="0.10",${labels}} ${metric.p10 ?? 0}`,
+      output.set(
+        `${customMetricName}{quantile="0.10",${labels}}`,
+        metric.p10 ?? 0,
       );
-      output.push(
-        `${customMetricName}{quantile="0.25",${labels}} ${metric.p25 ?? 0}`,
+      output.set(
+        `${customMetricName}{quantile="0.25",${labels}}`,
+        metric.p25 ?? 0,
       );
-      output.push(
-        `${customMetricName}{quantile="0.50",${labels}} ${metric.median ?? 0}`,
+      output.set(
+        `${customMetricName}{quantile="0.50",${labels}}`,
+        metric.median ?? 0,
       );
-      output.push(
-        `${customMetricName}{quantile="0.75",${labels}} ${metric.p75 ?? 0}`,
+      output.set(
+        `${customMetricName}{quantile="0.75",${labels}}`,
+        metric.p75 ?? 0,
       );
-      output.push(
-        `${customMetricName}{quantile="0.90",${labels}} ${metric.p90 ?? 0}`,
+      output.set(
+        `${customMetricName}{quantile="0.90",${labels}}`,
+        metric.p90 ?? 0,
       );
-      output.push(
-        `${customMetricName}{quantile="0.95",${labels}} ${metric.p95 ?? 0}`,
+      output.set(
+        `${customMetricName}{quantile="0.95",${labels}}`,
+        metric.p95 ?? 0,
       );
-      output.push(
-        `${customMetricName}{quantile="0.99",${labels}} ${metric.p99 ?? 0}`,
+      output.set(
+        `${customMetricName}{quantile="0.99",${labels}}`,
+        metric.p99 ?? 0,
       );
-      output.push(
-        `${customMetricName}_sum{${labels}} ${(metric.mean ?? 0) * (metric.count ?? 0)}`,
+      output.set(
+        `${customMetricName}_sum{${labels}}`,
+        (metric.mean ?? 0) * (metric.count ?? 0),
       );
-      output.push(`${customMetricName}_count{${labels}} ${metric.count}`);
+      output.set(`${customMetricName}_count{${labels}}`, metric.count ?? 0);
     }
   });
 }
