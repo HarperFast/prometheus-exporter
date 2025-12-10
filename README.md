@@ -10,7 +10,9 @@ This exporter plugs in directly to an instance of Harper and responds to Prometh
 
 ## Quick Start
 
-### Install the Prometheus Exporter Component
+1. Install the Prometheus Exporter Component
+
+Use the [Operations API](https://docs.harperdb.io/docs/developers/operations-api/components) to deploy this component:
 
 ```
 curl -X POST http://localhost:9925 \
@@ -23,7 +25,7 @@ curl -X POST http://localhost:9925 \
   }'
 ```
 
-### Update Prometheus configuration to scrape new endpoint
+2. Update Prometheus configuration to scrape new endpoint:
 
 ```
 # /etc/prometheus/prometheus.yml
