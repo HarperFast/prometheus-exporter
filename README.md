@@ -21,7 +21,8 @@ curl -X POST http://localhost:9925 \
   -d '{
     "operation": "deploy_component",
     "project": "prometheus-exporter",
-    "package": "HarperFast/prometheus-exporter"
+    "package": "HarperFast/prometheus-exporter",
+    "replicated": true
   }'
 ```
 
