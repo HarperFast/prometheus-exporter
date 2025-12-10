@@ -8,6 +8,34 @@ This exporter plugs in directly to an instance of Harper and responds to Prometh
 > [!NOTE]
 > This exporter will only work with Harper v4.2 or higher. (If you are looking for a compatible version for below v4.2 check [here](https://github.com/HarperDB/prometheus_exporter/releases/tag/v0.1.1))
 
+## Quick Start
+
+### Install the Prometheus Exporter Component
+
+```
+curl -X POST http://localhost:9925 \
+  -u USERNAME:PASSWORD \
+  -H "Content-Type: application/json" \
+  -d '{
+    "operation": "deploy_component",
+    "project": "prometheus-exporter",
+    "package": "HarperFast/prometheus-exporter"
+  }'
+```
+
+### Update Prometheus configuration to scrape new endpoint
+
+```
+# /etc/prometheus/prometheus.yml
+
+scrape_configs:
+ [ ... ]
+  - job_name: 'harperfast-prometheus-exporter'
+    metrics_path: '/prometheus_exporter/metrics'
+    static_configs:
+      - targets: ["localhost:9926"]
+```
+
 ## Harper Setup
 ### Instructions for v4.2.0 and higher (including beta releases)
 1. Note your components port:
