@@ -1020,16 +1020,14 @@ const recordProp = (record, key) =>
  */
 function outputCustomMetrics(customMetrics, metric, output) {
   customMetrics.forEach((custom_metric) => {
-    if (
-      metric[recordProp(custom_metric, "metricAttribute")] ===
-      recordProp(custom_metric, "name")
-    ) {
-      const customMetricName = recordProp(custom_metric, "name").replace(
-        /-/g,
-        "_",
-      );
+    const metricAttribute = recordProp(custom_metric, "metricAttribute");
+    const name = recordProp(custom_metric, "name");
+    // require both fields so a malformed entry can't match every metric
+    // via undefined === undefined and then crash on name.replace()
+    if (metricAttribute && name && metric[metricAttribute] === name) {
+      const customMetricName = name.replace(/-/g, "_");
       output.set(
-        `# HELP ${customMetricName} ${recordProp(custom_metric, "help")}`,
+        `# HELP ${customMetricName} ${recordProp(custom_metric, "help") ?? ""}`,
         null,
       );
       output.set(`# TYPE ${customMetricName} summary`, null);
