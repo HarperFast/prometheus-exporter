@@ -991,7 +991,7 @@ async function generateMetricsFromAnalytics(notFast) {
           break;
         }
         default:
-          if (notFast && customMetrics) {
+          if (notFast && Array.isArray(customMetrics)) {
             await outputCustomMetrics(customMetrics, metric, output);
           }
           break;
@@ -1004,6 +1004,12 @@ async function generateMetricsFromAnalytics(notFast) {
 // Call set() function on any gauge object with a default value of 0
 const gaugeSet = (gauge, options, value) => gauge?.set(options, value || 0);
 
+// Read a field from a custom-metric entry tolerantly: entries decode as
+// Map-like objects (.get()) on Harper 4 and plain (frozen) objects on
+// Harper 5 — support both
+const recordProp = (record, key) =>
+  typeof record?.get === "function" ? record.get(key) : record?.[key];
+
 /**
  * Processes custom metrics and appends formatted output to the provided output array.
  *
@@ -1015,11 +1021,15 @@ const gaugeSet = (gauge, options, value) => gauge?.set(options, value || 0);
 function outputCustomMetrics(customMetrics, metric, output) {
   customMetrics.forEach((custom_metric) => {
     if (
-      metric[custom_metric.get("metricAttribute")] === custom_metric.get("name")
+      metric[recordProp(custom_metric, "metricAttribute")] ===
+      recordProp(custom_metric, "name")
     ) {
-      const customMetricName = custom_metric.get("name").replace(/-/g, "_");
+      const customMetricName = recordProp(custom_metric, "name").replace(
+        /-/g,
+        "_",
+      );
       output.set(
-        `# HELP ${customMetricName} ${custom_metric.get("help")}`,
+        `# HELP ${customMetricName} ${recordProp(custom_metric, "help")}`,
         null,
       );
       output.set(`# TYPE ${customMetricName} summary`, null);
@@ -1076,7 +1086,7 @@ function outputCustomMetrics(customMetrics, metric, output) {
 function buildCustomLabels(customMetric, metric) {
   const labels = [];
 
-  customMetric.get("labels").forEach((label) => {
+  (recordProp(customMetric, "labels") ?? []).forEach((label) => {
     const labelValue = extractLabelValue(metric[label.metricAttribute], label);
     labels.push(`${label.label}="${labelValue}"`);
   });
