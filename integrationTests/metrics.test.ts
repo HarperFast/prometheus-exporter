@@ -1,5 +1,5 @@
 import { suite, test, before, after } from 'node:test';
-import { strictEqual, ok, match } from 'node:assert/strict';
+import { strictEqual, ok } from 'node:assert/strict';
 import {
   setupHarperWithFixture,
   teardownHarper,
@@ -32,6 +32,21 @@ function authFetch(
   });
 }
 
+/**
+ * Extract the metrics text from a response.
+ * Harper returns the Prometheus string payload as-is when the client sends
+ * Accept: application/openmetrics-text, but as an application/json-wrapped
+ * string when no specific Accept header is sent.  Handle both.
+ */
+async function extractMetricsText(res: Response): Promise<string> {
+  const ct = res.headers.get('content-type') ?? '';
+  if (ct.includes('application/json')) {
+    const body = await res.json() as unknown;
+    return typeof body === 'string' ? body : JSON.stringify(body);
+  }
+  return res.text();
+}
+
 void suite('prometheus-exporter', (ctx: ContextWithHarper) => {
   before(async () => {
     await setupHarperWithFixture(ctx, FIXTURE_PATH, { harperBinPath });
@@ -49,35 +64,41 @@ void suite('prometheus-exporter', (ctx: ContextWithHarper) => {
     );
   });
 
-  void test('GET /prometheus_exporter/metrics returns 200 with Prometheus/OpenMetrics text', async () => {
+  void test('GET /prometheus_exporter/metrics returns 200', async () => {
     const res = await authFetch(ctx, '/prometheus_exporter/metrics');
     strictEqual(res.status, 200, `Expected 200, got ${res.status}`);
-    const text = await res.text();
+  });
+
+  void test('GET /prometheus_exporter/metrics returns a recognized content type', async () => {
+    const res = await authFetch(ctx, '/prometheus_exporter/metrics');
+    strictEqual(res.status, 200);
+    const ct = res.headers.get('content-type') ?? '';
+    // Harper returns text/plain or application/openmetrics-text when the client
+    // sends the matching Accept header; application/json otherwise.
+    ok(
+      ct.includes('text/plain') ||
+        ct.includes('application/openmetrics-text') ||
+        ct.includes('application/json') ||
+        ct.includes('text/'),
+      `Unexpected content-type: ${ct}`,
+    );
+  });
+
+  void test('GET /prometheus_exporter/metrics body contains Prometheus metric comments', async () => {
+    const res = await authFetch(ctx, '/prometheus_exporter/metrics');
+    strictEqual(res.status, 200);
+    const text = await extractMetricsText(res);
     ok(text.length > 0, 'Response body should not be empty');
-    // Prometheus text format always includes at least the process metrics
-    // (prom-client collectDefaultMetrics) and ends with EOF marker
     ok(
       text.includes('# HELP') || text.includes('# EOF'),
       'Response should contain Prometheus metric comments',
     );
   });
 
-  void test('GET /prometheus_exporter/metrics returns OpenMetrics content type or text/plain', async () => {
-    const res = await authFetch(ctx, '/prometheus_exporter/metrics');
-    strictEqual(res.status, 200);
-    const ct = res.headers.get('content-type') ?? '';
-    ok(
-      ct.includes('text/plain') ||
-        ct.includes('application/openmetrics-text') ||
-        ct.includes('text/'),
-      `Unexpected content-type: ${ct}`,
-    );
-  });
-
   void test('GET /prometheus_exporter/metrics includes default Node.js process metrics', async () => {
     const res = await authFetch(ctx, '/prometheus_exporter/metrics');
     strictEqual(res.status, 200);
-    const text = await res.text();
+    const text = await extractMetricsText(res);
     // prom-client collectDefaultMetrics() always registers process_cpu_seconds_total
     ok(
       text.includes('process_cpu') || text.includes('nodejs_'),
@@ -93,7 +114,7 @@ void suite('prometheus-exporter', (ctx: ContextWithHarper) => {
       `Expected 200 or 404, got ${res.status}`,
     );
     if (res.status === 200) {
-      const text = await res.text();
+      const text = await extractMetricsText(res);
       ok(text.length > 0, 'fast metrics response should not be empty');
     }
   });
