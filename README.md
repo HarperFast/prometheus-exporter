@@ -6,7 +6,7 @@
 This exporter plugs in directly to an instance of Harper and responds to Prometheus scrapes.
 
 > [!NOTE]
-> This exporter will only work with Harper v4.2 or higher. (If you are looking for a compatible version for below v4.2 check [here](https://github.com/HarperDB/prometheus_exporter/releases/tag/v0.1.1))
+> This exporter supports Harper v4.2 and higher, including Harper v5. (If you are looking for a compatible version for below v4.2 check [here](https://github.com/HarperDB/prometheus_exporter/releases/tag/v0.1.1))
 
 ## Quick Start
 
