@@ -13,10 +13,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PATH = resolve(__dirname, '..');
 
 // harper's `exports` only exposes ".", so 'harper/dist/bin/harper.js' is not resolvable.
-// Resolve the CLI from the exported main entry and pass it explicitly.
+// require.resolve('harper') gives dist/index.js; dirname gives dist/, then bin/harper.js.
 const require = createRequire(import.meta.url);
-const harperRoot = dirname(require.resolve('harper/package.json'));
-const harperBinPath = resolve(harperRoot, 'dist/bin/harper.js');
+const harperBinPath = resolve(dirname(require.resolve('harper')), 'bin/harper.js');
 
 function authFetch(
   ctx: ContextWithHarper,
