@@ -15,7 +15,8 @@ const FIXTURE_PATH = resolve(__dirname, '..');
 // harper's `exports` only exposes ".", so 'harper/dist/bin/harper.js' is not resolvable.
 // Resolve the CLI from the exported main entry and pass it explicitly.
 const require = createRequire(import.meta.url);
-const harperBinPath = resolve(dirname(require.resolve('harper')), 'bin/harper.js');
+const harperRoot = dirname(require.resolve('harper/package.json'));
+const harperBinPath = resolve(harperRoot, 'dist/bin/harper.js');
 
 function authFetch(
   ctx: ContextWithHarper,
@@ -42,7 +43,10 @@ async function extractMetricsText(res: Response): Promise<string> {
   const ct = res.headers.get('content-type') ?? '';
   if (ct.includes('application/json')) {
     const body = await res.json() as unknown;
-    return typeof body === 'string' ? body : JSON.stringify(body);
+    if (typeof body !== 'string') {
+      throw new Error(`Expected string from JSON-wrapped metrics response, got: ${JSON.stringify(body)}`);
+    }
+    return body;
   }
   return res.text();
 }
@@ -59,7 +63,7 @@ void suite('prometheus-exporter', (ctx: ContextWithHarper) => {
   void test('Harper starts successfully', async () => {
     const res = await authFetch(ctx, '/');
     ok(
-      [200, 400, 404].includes(res.status),
+      [200, 404].includes(res.status),
       `Unexpected status ${res.status}`,
     );
   });
@@ -78,8 +82,7 @@ void suite('prometheus-exporter', (ctx: ContextWithHarper) => {
     ok(
       ct.includes('text/plain') ||
         ct.includes('application/openmetrics-text') ||
-        ct.includes('application/json') ||
-        ct.includes('text/'),
+        ct.includes('application/json'),
       `Unexpected content-type: ${ct}`,
     );
   });
