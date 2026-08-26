@@ -6,16 +6,48 @@ import {
   type ContextWithHarper,
 } from '@harperfast/integration-testing';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PATH = resolve(__dirname, '..');
 
-// harper's `exports` only exposes ".", so 'harper/dist/bin/harper.js' is not resolvable.
-// require.resolve('harper') gives dist/index.js; dirname gives dist/, then bin/harper.js.
 const require = createRequire(import.meta.url);
-const harperBinPath = resolve(dirname(require.resolve('harper')), 'bin/harper.js');
+
+/**
+ * Locate harper's CLI without assuming its internal layout.
+ *
+ * harper's `exports` map declares only ".", so neither `harper/package.json` nor
+ * `harper/dist/bin/harper.js` is resolvable — both fail with
+ * ERR_PACKAGE_PATH_NOT_EXPORTED. Resolve the main entry, walk up to the package
+ * root, and read the CLI path out of harper's own `bin` field: that survives the
+ * main entry moving anywhere inside the package, and fails with a named error
+ * instead of a cryptic ENOENT if the package shape ever changes.
+ */
+function resolveHarperBinPath(): string {
+  let dir = dirname(require.resolve('harper'));
+  for (let i = 0; i < 10; i++) {
+    const pkgPath = join(dir, 'package.json');
+    if (existsSync(pkgPath)) {
+      const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as {
+        name?: string;
+        bin?: string | Record<string, string>;
+      };
+      if (pkg.name === 'harper') {
+        const bin = typeof pkg.bin === 'string' ? pkg.bin : pkg.bin?.harper;
+        if (!bin) throw new Error("harper's package.json declares no `bin.harper` entry");
+        return resolve(dir, bin);
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error("could not locate the harper package root from require.resolve('harper')");
+}
+
+const harperBinPath = resolveHarperBinPath();
 
 function authFetch(
   ctx: ContextWithHarper,
