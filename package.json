@@ -4,15 +4,19 @@
   "description": "Harper Prometheus Exporter",
   "type": "module",
   "scripts": {
-    "dev": "./run-in-docker.sh"
+    "dev": "./run-in-docker.sh",
+    "test:integration": "harper-integration-test-run integrationTests/**/*.test.ts"
   },
   "prettier": "@harperdb/code-guidelines/prettier",
-  "author": "HarperDB, Inc.",
+  "author": "Harper",
   "dependencies": {
     "prom-client": "^15.1.1"
   },
   "devDependencies": {
-    "@harperdb/code-guidelines": "0.0.2"
+    "@harperdb/code-guidelines": "0.0.2",
+    "@harperfast/integration-testing": "^0.4.0",
+    "harper": "^5.2.1",
+    "typescript": "^6.0.3"
   },
   "license": "Apache-2.0"
 }
