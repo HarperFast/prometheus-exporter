@@ -860,12 +860,6 @@ async function generateMetricsFromAnalytics(notFast) {
             metric.size,
           );
           break;
-        case "node-storage":
-          if (!Prometheus.register.getSingleMetric("harperdb_node_storage_bytes")) {
-            Prometheus.register.registerMetric(node_storage_gauge);
-          }
-          gaugeSet(node_storage_gauge, {}, metric.size);
-          break;
         case "storage-volume":
           gaugeSet(
             database_volume_size_gauge,
@@ -1121,6 +1115,38 @@ async function generateMetricsFromAnalytics(notFast) {
       }
     }
   }
+  // node-storage is handled outside the windowed loop above: its records are
+  // interval-gated upstream (analytics.storageInterval, default every 10th
+  // aggregation cycle), so their cadence is LONGER than the search window and
+  // a windowed lookup leaves the gauge absent between writes (present on only
+  // a fraction of scrapes). Fetch the latest record directly instead — the
+  // newest measurement that exists, however old, which for a slow-moving
+  // total is the honest value. The gauge stays absent only when no record
+  // exists at all (feature disabled, or a Harper version without the writer).
+  if (notFast) {
+    const nodeStorageEnd = Date.now();
+    const latestNodeStorage = await hdb_analytics.search({
+      conditions: [
+        {
+          attribute: "id",
+          value: [nodeStorageEnd - 24 * 60 * 60 * 1000, nodeStorageEnd],
+          comparator: "between",
+          sort: { attribute: "id", descending: true },
+        },
+        { attribute: "metric", value: "node-storage", comparator: "equals" },
+      ],
+    });
+    for await (const record of latestNodeStorage) {
+      if (
+        !Prometheus.register.getSingleMetric("harperdb_node_storage_bytes")
+      ) {
+        Prometheus.register.registerMetric(node_storage_gauge);
+      }
+      gaugeSet(node_storage_gauge, {}, record.size);
+      break; // descending sort: first record is the newest
+    }
+  }
+
   return output;
 }
 
