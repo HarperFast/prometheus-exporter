@@ -74,6 +74,56 @@ const time_sync_gauge = new Prometheus.Gauge({
   labelNames: ["database"],
 });
 
+// Storage-size snapshots, populated from the analytics `database-size`,
+// `table-size`, `node-storage` and `storage-volume` records. These are plain
+// gauges: the records carry a point-in-time size, not a quantile summary, so
+// they cannot be surfaced through customMetrics (which renders summaries).
+const database_size_gauge = new Prometheus.Gauge({
+  name: "harperdb_database_size_bytes",
+  help: "On-disk size of the database's primary storage in bytes. RocksDB: sum of .sst files; LMDB: data file size.",
+  labelNames: ["database"],
+});
+const database_used_gauge = new Prometheus.Gauge({
+  name: "harperdb_database_used_bytes",
+  help: "Bytes within the database file in use by tables (LMDB-backed databases only).",
+  labelNames: ["database"],
+});
+const database_free_gauge = new Prometheus.Gauge({
+  name: "harperdb_database_free_bytes",
+  help: "Free bytes within the database file (LMDB-backed databases only).",
+  labelNames: ["database"],
+});
+const database_audit_size_gauge = new Prometheus.Gauge({
+  name: "harperdb_database_audit_size_bytes",
+  help: "Size of the database's audit/transaction log in bytes.",
+  labelNames: ["database"],
+});
+const table_size_gauge = new Prometheus.Gauge({
+  name: "harperdb_table_size_bytes",
+  help: "On-disk size of a table in bytes.",
+  labelNames: ["database", "table"],
+});
+const node_storage_gauge = new Prometheus.Gauge({
+  name: "harperdb_node_storage_bytes",
+  help: "Total size of the Harper data directory in bytes.",
+  labelNames: [],
+});
+const database_volume_size_gauge = new Prometheus.Gauge({
+  name: "harperdb_database_volume_size_bytes",
+  help: "Total size in bytes of the filesystem volume holding the database.",
+  labelNames: ["database"],
+});
+const database_volume_free_gauge = new Prometheus.Gauge({
+  name: "harperdb_database_volume_free_bytes",
+  help: "Free bytes on the filesystem volume holding the database.",
+  labelNames: ["database"],
+});
+const database_volume_available_gauge = new Prometheus.Gauge({
+  name: "harperdb_database_volume_available_bytes",
+  help: "Bytes available to unprivileged users on the filesystem volume holding the database.",
+  labelNames: ["database"],
+});
+
 const thread_count_gauge = new Prometheus.Gauge({
   name: "harperdb_process_threads_count",
   help: "Number of threads in the Harper core process",
@@ -382,6 +432,21 @@ class metrics extends Resource {
     time_start_txns_gauge.reset();
     time_page_flushes_gauge.reset();
     time_sync_gauge.reset();
+    database_size_gauge.reset();
+    database_used_gauge.reset();
+    database_free_gauge.reset();
+    database_audit_size_gauge.reset();
+    table_size_gauge.reset();
+    // node_storage_gauge is unlabeled, and an unlabeled prom-client gauge that
+    // has been registered renders `0` even when never set. node-storage
+    // analytics are interval-gated (analytics.storageInterval) and absent on
+    // instances that disable them, so a registered-but-unset gauge would report
+    // a fake "0 bytes". Remove it from the registry instead; the analytics
+    // case below re-registers it whenever a record is actually present.
+    Prometheus.register.removeSingleMetric("harperdb_node_storage_bytes");
+    database_volume_size_gauge.reset();
+    database_volume_free_gauge.reset();
+    database_volume_available_gauge.reset();
     thread_count_gauge.reset();
     harperdb_cpu_percentage_gauge.reset();
 
@@ -758,6 +823,64 @@ async function generateMetricsFromAnalytics(notFast) {
               topic: metric.path,
             },
             metric.count,
+          );
+          break;
+        case "database-size":
+          gaugeSet(
+            database_size_gauge,
+            { database: metric.database },
+            metric.size,
+          );
+          // The audit/transaction-log size field is named `transactionLog` by
+          // RocksDB-backed databases and `audit` by LMDB-backed ones.
+          gaugeSet(
+            database_audit_size_gauge,
+            { database: metric.database },
+            metric.transactionLog ?? metric.audit,
+          );
+          if (metric.used !== undefined) {
+            gaugeSet(
+              database_used_gauge,
+              { database: metric.database },
+              metric.used,
+            );
+          }
+          if (metric.free !== undefined) {
+            gaugeSet(
+              database_free_gauge,
+              { database: metric.database },
+              metric.free,
+            );
+          }
+          break;
+        case "table-size":
+          gaugeSet(
+            table_size_gauge,
+            { database: metric.database, table: metric.table },
+            metric.size,
+          );
+          break;
+        case "node-storage":
+          if (!Prometheus.register.getSingleMetric("harperdb_node_storage_bytes")) {
+            Prometheus.register.registerMetric(node_storage_gauge);
+          }
+          gaugeSet(node_storage_gauge, {}, metric.size);
+          break;
+        case "storage-volume":
+          gaugeSet(
+            database_volume_size_gauge,
+            { database: metric.database },
+            metric.size,
+          );
+          gaugeSet(
+            database_volume_free_gauge,
+            { database: metric.database },
+            metric.free,
+          );
+          gaugeSet(
+            database_volume_available_gauge,
+            { database: metric.database },
+            metric.available,
           );
           break;
         case "TTFB":
