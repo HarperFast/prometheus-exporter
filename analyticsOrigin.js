@@ -1,24 +1,20 @@
-// Since Harper 4.6, hdb_analytics ids are [time, nodeId] and system.hdb_analytics_hostname maps
-// each nodeId back to the server.hostname that wrote it. With analytics.replicate enabled every
-// node holds every node's rows, so a node must export only its own or each scrape reports
-// cluster-wide traffic and summing across instances counts it once per node.
+import crypto from "node:crypto";
+import { isIPv6 } from "node:net";
+
+// Harper (4.6+) keys hdb_analytics rows as [time, nodeId]; with analytics.replicate on,
+// every node holds every node's rows, so the exporter keeps only rows with its own nodeId.
 
 export const NOT_REPLICATED = "not-replicated";
-export const NO_NODE_IDS = "no-node-ids";
-export const UNRESOLVED = "unresolved";
 
-/**
- * @returns {Promise<number|string>} the local node id, or NOT_REPLICATED / NO_NODE_IDS when rows
- * can't (or needn't) be attributed to a node, or UNRESOLVED when this node's id isn't recorded yet
- */
 export async function resolveLocalNodeId(system, hostname) {
   if (system?.hdb_analytics?.replicate === false) return NOT_REPLICATED;
   const hostnameTable = system?.hdb_analytics_hostname;
-  if (!hostnameTable) return NO_NODE_IDS;
-  for await (const record of hostnameTable.search({ conditions: [] })) {
-    if (record?.hostname === hostname) return record.id;
+  if (hostnameTable) {
+    for await (const record of hostnameTable.search({ conditions: [] })) {
+      if (record?.hostname === hostname) return record.id;
+    }
   }
-  return UNRESOLVED;
+  return stableNodeId(hostname);
 }
 
 export function isFromLocalNode(analyticsId, localNodeId) {
@@ -26,4 +22,30 @@ export function isFromLocalNode(analyticsId, localNodeId) {
     return true;
   }
   return analyticsId[1] === localNodeId;
+}
+
+// Mirrors Harper's stableNodeId (resources/analytics/hostnames.ts). Its output is part of every
+// stored analytics key, so Harper can't change it without breaking existing data.
+export function stableNodeId(hostname) {
+  const normalized = isIPv6(hostname)
+    ? normalizeIPv6(hostname)
+    : hostname.toLowerCase();
+  return crypto
+    .createHash("shake128", { outputLength: 4 })
+    .update(normalized)
+    .digest()
+    .readInt32BE(0);
+}
+
+function normalizeIPv6(ipv6) {
+  ipv6 = ipv6.replace(/(\d{1,3}\.){3}\d{1,3}$/, (ipv4) => {
+    const [a, b, c, d] = ipv4.split(".").map((n) => parseInt(n));
+    return ((a << 8) | b).toString(16) + ":" + ((c << 8) | d).toString(16);
+  });
+  ipv6 = ipv6.replace("::", ":".repeat(10 - ipv6.split(":").length));
+  return ipv6
+    .toLowerCase()
+    .split(":")
+    .map((v) => v.padStart(4, "0"))
+    .join(":");
 }

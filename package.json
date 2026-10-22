@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "./run-in-docker.sh",
-    "test": "node --test"
+    "test:unit": "node --test \"test/*.test.js\""
   },
   "prettier": "@harperdb/code-guidelines/prettier",
   "author": "HarperDB, Inc.",
