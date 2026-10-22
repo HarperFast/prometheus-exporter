@@ -2,12 +2,13 @@ import crypto from "node:crypto";
 import { isIPv6 } from "node:net";
 
 // Harper (4.6+) keys hdb_analytics rows as [time, nodeId]; with analytics.replicate on,
-// every node holds every node's rows, so the exporter keeps only rows with its own nodeId.
+// every node holds every node's rows.
 
 export const NOT_REPLICATED = "not-replicated";
 
 export async function resolveLocalNodeId(system, hostname) {
   if (system?.hdb_analytics?.replicate === false) return NOT_REPLICATED;
+  if (typeof hostname !== "string") return NOT_REPLICATED;
   const hostnameTable = system?.hdb_analytics_hostname;
   if (hostnameTable) {
     for await (const record of hostnameTable.search({ conditions: [] })) {

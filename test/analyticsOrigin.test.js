@@ -24,6 +24,13 @@ describe("resolveLocalNodeId", () => {
     assert.equal(await resolveLocalNodeId(system, "a"), NOT_REPLICATED);
   });
 
+  it("skips attribution when Harper exposes no hostname", async () => {
+    assert.equal(
+      await resolveLocalNodeId({ hdb_analytics: {} }, undefined),
+      NOT_REPLICATED,
+    );
+  });
+
   it("returns the id Harper recorded for this hostname", async () => {
     const system = {
       hdb_analytics: {},
