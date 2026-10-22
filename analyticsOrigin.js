@@ -11,7 +11,7 @@ export async function resolveLocalNodeId(system, hostname) {
   if (typeof hostname !== "string") return NOT_REPLICATED;
   const hostnameTable = system?.hdb_analytics_hostname;
   if (hostnameTable) {
-    for await (const record of hostnameTable.search({ conditions: [] })) {
+    for await (const record of await hostnameTable.search({ conditions: [] })) {
       if (record?.hostname === hostname) return record.id;
     }
   }
