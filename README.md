@@ -204,6 +204,11 @@ We expose default metrics from the [Prometheus client](https://github.com/siimon
 
 Metrics specific to Harper (all metrics are [Gauges](https://prometheus.io/docs/concepts/metric_types/#gauge)):
 
+Each node reports only its own traffic, so scrape every node and aggregate in Prometheus. This holds when
+`analytics.replicate` is enabled too: the exporter skips analytics rows that other nodes replicated to it.
+That requires Harper 4.6 or later; on older versions a replicated analytics table includes other nodes'
+traffic, and the exporter logs a warning.
+
 | Metric                                   | Description                                                                                                                                                                                                                                                                       |
 |------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `harperdb_table_puts_total`              | Total number of non-delete writes by table.                                                                                                                                                                                                                                       |

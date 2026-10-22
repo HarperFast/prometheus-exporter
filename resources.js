@@ -2,6 +2,13 @@
 
 import process from "node:process";
 import Prometheus from "prom-client";
+import {
+  NO_NODE_IDS,
+  NOT_REPLICATED,
+  UNRESOLVED,
+  isFromLocalNode,
+  resolveLocalNodeId,
+} from "./analyticsOrigin.js";
 
 const { hdb_analytics } = databases.system;
 const { analytics, clustering, replication } = server.config;
@@ -645,7 +652,35 @@ class metrics extends Resource {
   }
 }
 
+let localNodeId;
+const loggedWarnings = new Set();
+
+function warnOnce(message) {
+  if (loggedWarnings.has(message)) return;
+  loggedWarnings.add(message);
+  logger.warn(message);
+}
+
+async function getLocalNodeId() {
+  if (typeof localNodeId === "number" || localNodeId === NOT_REPLICATED) {
+    return localNodeId;
+  }
+  localNodeId = await resolveLocalNodeId(databases.system, server.hostname);
+  if (localNodeId === UNRESOLVED) {
+    warnOnce(
+      `Analytics replicate across the cluster but no hdb_analytics_hostname entry exists yet for ${server.hostname}; omitting analytics metrics until it does`,
+    );
+  } else if (localNodeId === NO_NODE_IDS) {
+    warnOnce(
+      "Analytics replicate across the cluster but this Harper version doesn't record which node wrote each row (needs 4.6+); analytics metrics include other nodes' traffic",
+    );
+  }
+  return localNodeId;
+}
+
 async function generateMetricsFromAnalytics(notFast) {
+  const nodeId = await getLocalNodeId();
+  if (nodeId === UNRESOLVED) return new Map();
   const end_at = Date.now();
   const start_at = end_at - AGGREGATE_PERIOD_MS * 1.5;
   let results = await hdb_analytics.search({
@@ -667,7 +702,7 @@ async function generateMetricsFromAnalytics(notFast) {
     ?.value;
 
   for await (let metric of results) {
-    if (metric) {
+    if (metric && isFromLocalNode(metric.id, nodeId)) {
       // HTTP response status code metrics; status code is in metric name, e.g. response_200
       if (
         typeof metric?.metric === "string" &&

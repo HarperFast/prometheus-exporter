@@ -4,7 +4,8 @@
   "description": "Harper Prometheus Exporter",
   "type": "module",
   "scripts": {
-    "dev": "./run-in-docker.sh"
+    "dev": "./run-in-docker.sh",
+    "test": "node --test"
   },
   "prettier": "@harperdb/code-guidelines/prettier",
   "author": "HarperDB, Inc.",
