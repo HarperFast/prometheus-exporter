@@ -5,10 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "./run-in-docker.sh",
-    "test:unit": "node --test test/analyticsOrigin.test.js"
+    "test:unit": "node --test test/analyticsOrigin.test.js",
+    "test:integration:deps": "npm ci --prefix integrationTests",
+    "test:integration": "integrationTests/node_modules/.bin/harper-integration-test-run \"integrationTests/**/*.test.ts\""
   },
   "prettier": "@harperdb/code-guidelines/prettier",
-  "author": "HarperDB, Inc.",
+  "author": "Harper",
   "dependencies": {
     "prom-client": "^15.1.1"
   },
