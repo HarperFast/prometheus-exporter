@@ -205,7 +205,8 @@ We expose default metrics from the [Prometheus client](https://github.com/siimon
 Metrics specific to Harper (all metrics are [Gauges](https://prometheus.io/docs/concepts/metric_types/#gauge)):
 
 The traffic metrics built from Harper's analytics (requests, response codes, connections, bytes and messages, cache hits, and the
-latency summaries) cover only the traffic each node served, so you can sum them across nodes. This holds when
+latency summaries) cover only the traffic each node served, so you can sum their counts, and the summaries' `_sum` and `_count`
+series, across nodes; quantiles can't be summed. This holds when
 `analytics.replicate` is enabled too: the exporter skips analytics rows that other nodes replicated to it. The `harperdb_*`
 storage counters are different: each node counts every write it applies, replicated ones included, so summing them across a
 cluster overcounts writes.
