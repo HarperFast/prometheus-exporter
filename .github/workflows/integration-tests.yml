@@ -63,7 +63,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Kept out of package.json: Harper installs a component's devDependencies on deploy
+      # Lives in integrationTests/package.json: Harper installs a component's root devDependencies on deploy
       - name: Install integration test tooling
         run: npm run test:integration:deps
 

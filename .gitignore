@@ -1,4 +1,5 @@
 .idea/*
 /node_modules/*
+/integrationTests/node_modules/
 .vs_code/*
 .DS_Store

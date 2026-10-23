@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "./run-in-docker.sh",
-    "test:integration:deps": "npm install --no-save harper@^5.2.1 @harperfast/integration-testing@^0.4.0",
-    "test:integration": "harper-integration-test-run \"integrationTests/**/*.test.ts\""
+    "test:integration:deps": "npm ci --prefix integrationTests",
+    "test:integration": "integrationTests/node_modules/.bin/harper-integration-test-run \"integrationTests/**/*.test.ts\""
   },
   "prettier": "@harperdb/code-guidelines/prettier",
   "author": "Harper",
