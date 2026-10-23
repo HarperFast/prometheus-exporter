@@ -1,5 +1,5 @@
 import { suite, test, before, after } from 'node:test';
-import { strictEqual, ok } from 'node:assert/strict';
+import { deepStrictEqual, strictEqual, ok } from 'node:assert/strict';
 import {
   setupHarperWithFixture,
   teardownHarper,
@@ -155,29 +155,22 @@ void suite('prometheus-exporter', (ctx: ContextWithHarper) => {
 
   void test('PrometheusExporterSettings table is accessible (REST)', async () => {
     // The settings table should be populated by the module-level init code
-    const res = await authFetch(ctx, '/PrometheusExporterSettings/');
-    ok(
-      [200, 404].includes(res.status),
-      `Expected 200 or 404 from REST, got ${res.status}`,
-    );
-    if (res.status === 200) {
-      const body = await res.json() as unknown[];
-      ok(Array.isArray(body), 'Expected array of settings records');
-    }
+    const res = await authFetch(ctx, '/prometheus_exporter/PrometheusExporterSettings/');
+    strictEqual(res.status, 200, `Expected 200 from REST, got ${res.status}`);
+    const body = await res.json() as { name: string }[];
+    ok(Array.isArray(body), 'Expected array of settings records');
+    const names = body.map((record) => record.name).sort();
+    deepStrictEqual(names, ['allowedUsers', 'customMetrics', 'forceAuthorization']);
   });
 
   void test('forceAuthorization setting is initialized', async () => {
     const res = await authFetch(
       ctx,
-      '/PrometheusExporterSettings/forceAuthorization',
+      '/prometheus_exporter/PrometheusExporterSettings/forceAuthorization',
     );
-    ok(
-      [200, 404].includes(res.status),
-      `Unexpected status ${res.status}`,
-    );
-    if (res.status === 200) {
-      const body = await res.json() as { name: string; value: unknown };
-      strictEqual(body.name, 'forceAuthorization');
-    }
+    strictEqual(res.status, 200, `Unexpected status ${res.status}`);
+    const body = await res.json() as { name: string; value: unknown };
+    strictEqual(body.name, 'forceAuthorization');
+    strictEqual(body.value, true);
   });
 });
