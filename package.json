@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "./run-in-docker.sh",
-    "test:integration": "harper-integration-test-run integrationTests/**/*.test.ts"
+    "test:integration:deps": "npm install --no-save harper@^5.2.1 @harperfast/integration-testing@^0.4.0",
+    "test:integration": "harper-integration-test-run \"integrationTests/**/*.test.ts\""
   },
   "prettier": "@harperdb/code-guidelines/prettier",
   "author": "Harper",
@@ -13,10 +14,7 @@
     "prom-client": "^15.1.1"
   },
   "devDependencies": {
-    "@harperdb/code-guidelines": "0.0.2",
-    "@harperfast/integration-testing": "^0.4.0",
-    "harper": "^5.2.1",
-    "typescript": "^6.0.3"
+    "@harperdb/code-guidelines": "0.0.2"
   },
   "license": "Apache-2.0"
 }
