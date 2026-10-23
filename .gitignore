@@ -1,5 +1,5 @@
 .idea/*
 /node_modules/*
+/integrationTests/node_modules/
 .vs_code/*
-package-lock.json
 .DS_Store

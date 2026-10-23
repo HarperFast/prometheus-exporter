@@ -4,10 +4,12 @@
   "description": "Harper Prometheus Exporter",
   "type": "module",
   "scripts": {
-    "dev": "./run-in-docker.sh"
+    "dev": "./run-in-docker.sh",
+    "test:integration:deps": "npm ci --prefix integrationTests",
+    "test:integration": "integrationTests/node_modules/.bin/harper-integration-test-run \"integrationTests/**/*.test.ts\""
   },
   "prettier": "@harperdb/code-guidelines/prettier",
-  "author": "HarperDB, Inc.",
+  "author": "Harper",
   "dependencies": {
     "prom-client": "^15.1.1"
   },

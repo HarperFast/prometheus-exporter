@@ -6,7 +6,7 @@
 This exporter plugs in directly to an instance of Harper and responds to Prometheus scrapes.
 
 > [!NOTE]
-> This exporter will only work with Harper v4.2 or higher. (If you are looking for a compatible version for below v4.2 check [here](https://github.com/HarperDB/prometheus_exporter/releases/tag/v0.1.1))
+> This exporter supports Harper v4.2 and higher, including Harper v5. (If you are looking for a compatible version for below v4.2 check [here](https://github.com/HarperDB/prometheus_exporter/releases/tag/v0.1.1))
 
 ## Quick Start
 
@@ -478,3 +478,13 @@ filesystem_used_bytes{device="/dev/sde",fstype="ext4",mountpoint="/mnt/wsl/docke
 filesystem_used_bytes{device="/dev/sdd",fstype="ext4",mountpoint="/mnt/wsl/docker-desktop/docker-desktop-user-distro"} 0.01
 filesystem_used_bytes{device="/dev/loop0",fstype="iso9660",mountpoint="/mnt/wsl/docker-desktop/cli-tools"} 100
 ```
+
+## Integration Tests
+The integration tests boot Harper with this component and check its endpoints. Their tooling has its own `integrationTests/package.json`, so deploying the component never installs it.
+
+```
+npm run test:integration:deps   # once, and after the tooling's lockfile changes
+npm run test:integration
+```
+
+On macOS the test harness binds Harper to `127.0.0.2` and up, so add loopback aliases first (see `setup-loopback.sh` in [HarperFast/integration-testing](https://github.com/HarperFast/integration-testing/tree/main/scripts)).
