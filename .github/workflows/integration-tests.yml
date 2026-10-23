@@ -63,6 +63,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run unit tests
+        run: npm run test:unit
+
       # Lives in integrationTests/package.json: Harper installs a component's root devDependencies on deploy
       - name: Install integration test tooling
         run: npm run test:integration:deps
