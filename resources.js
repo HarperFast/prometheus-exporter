@@ -2,6 +2,7 @@
 
 import process from "node:process";
 import Prometheus from "prom-client";
+import { isFromLocalNode, resolveLocalNodeId } from "./analyticsOrigin.js";
 
 const { hdb_analytics } = databases.system;
 const { analytics, clustering, replication } = server.config;
@@ -645,7 +646,10 @@ class metrics extends Resource {
   }
 }
 
+let localNodeId;
+
 async function generateMetricsFromAnalytics(notFast) {
+  localNodeId ??= await resolveLocalNodeId(databases.system, server.hostname);
   const end_at = Date.now();
   const start_at = end_at - AGGREGATE_PERIOD_MS * 1.5;
   let results = await hdb_analytics.search({
@@ -667,7 +671,7 @@ async function generateMetricsFromAnalytics(notFast) {
     ?.value;
 
   for await (let metric of results) {
-    if (metric) {
+    if (metric && isFromLocalNode(metric.id, localNodeId)) {
       // HTTP response status code metrics; status code is in metric name, e.g. response_200
       if (
         typeof metric?.metric === "string" &&
