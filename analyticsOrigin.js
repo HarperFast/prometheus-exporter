@@ -40,7 +40,7 @@ export function stableNodeId(hostname) {
 
 function normalizeIPv6(ipv6) {
   ipv6 = ipv6.replace(/(\d{1,3}\.){3}\d{1,3}$/, (ipv4) => {
-    const [a, b, c, d] = ipv4.split(".").map((n) => parseInt(n));
+    const [a, b, c, d] = ipv4.split(".").map((n) => parseInt(n, 10));
     return ((a << 8) | b).toString(16) + ":" + ((c << 8) | d).toString(16);
   });
   ipv6 = ipv6.replace("::", ":".repeat(10 - ipv6.split(":").length));
