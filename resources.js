@@ -3,11 +3,17 @@
 import process from "node:process";
 import Prometheus from "prom-client";
 import { isFromLocalNode, resolveLocalNodeId } from "./analyticsOrigin.js";
+import {
+  ingest,
+  rawCounterPublisher,
+  rawRetentionMs,
+  readState,
+} from "./rawCounters.js";
 
 const { hdb_analytics } = databases.system;
 const { analytics, clustering, replication } = server.config;
 
-const { PrometheusExporterSettings } = tables;
+const { PrometheusExporterSettings, PrometheusExporterRawCounters } = tables;
 
 const AGGREGATE_PERIOD_MS = analytics?.aggregatePeriod
   ? analytics?.aggregatePeriod * 1000
@@ -305,6 +311,90 @@ if (server.workerIndex == 0) {
       PrometheusExporterSettings.put({ name: "allowedUsers", value: [] }),
       PrometheusExporterSettings.put({ name: "customMetrics", value: [] });
   }
+}
+
+const RAW_INGEST_INTERVAL_MS = 15000;
+
+const rawCountersEnabled = async () =>
+  (await PrometheusExporterSettings.get("rawCounters"))?.value === true;
+
+const raw_counters = {};
+const rawCounter = (name, help) =>
+  (raw_counters[name] = new Prometheus.Counter({
+    name,
+    help,
+    labelNames: ["node"],
+  }));
+rawCounter("harper_mqtt_connects_total", "MQTT CONNECT attempts");
+rawCounter(
+  "harper_mqtt_connects_succeeded_total",
+  "MQTT CONNECTs accepted with a CONNACK",
+);
+rawCounter(
+  "harper_mqtt_disconnects_total",
+  "MQTT connections closed, clean or not",
+);
+rawCounter(
+  "harper_mqtt_disconnects_clean_total",
+  "MQTT connections closed by a DISCONNECT packet",
+);
+rawCounter(
+  "harper_mqtt_subscribes_total",
+  "MQTT SUBSCRIBE packets received (Harper records no per-subscription outcome)",
+);
+rawCounter("harper_mqtt_bytes_sent_total", "MQTT bytes sent");
+rawCounter("harper_mqtt_bytes_received_total", "MQTT bytes received");
+const publishRawCounters = rawCounterPublisher({
+  counters: raw_counters,
+  gap: new Prometheus.Counter({
+    name: "harper_exporter_raw_gap_seconds_total",
+    help: "Time span whose raw analytics may have expired before the exporter counted them (an upper bound)",
+    labelNames: ["node"],
+  }),
+  lag: new Prometheus.Gauge({
+    name: "harper_exporter_raw_lag_seconds",
+    help: "Age of the newest raw analytics report counted; negative if the clock went back",
+    labelNames: ["node"],
+  }),
+});
+
+if (server.workerIndex == 0) {
+  let ingesting = false;
+  setInterval(async () => {
+    if (ingesting) return;
+    ingesting = true;
+    try {
+      if (await rawCountersEnabled()) {
+        await ingest({
+          rawTable: databases.system.hdb_raw_analytics,
+          stateTable: PrometheusExporterRawCounters,
+          node: server.hostname,
+          now: Date.now(),
+          retentionMs: rawRetentionMs(analytics),
+        });
+      }
+    } catch (error) {
+      logger.error("Error ingesting raw analytics", error);
+    } finally {
+      ingesting = false;
+    }
+  }, RAW_INGEST_INTERVAL_MS).unref();
+}
+
+let rawCountersPublished = false;
+async function setRawCounters() {
+  const node = server.hostname;
+  let state;
+  try {
+    if (await rawCountersEnabled())
+      state = await readState(PrometheusExporterRawCounters, node);
+  } catch (error) {
+    // Drop the samples rather than leave stale totals and a frozen lag gauge on display
+    logger.error("Error reading raw analytics counters", error);
+  }
+  if (!rawCountersPublished && state === undefined) return;
+  publishRawCounters(state, node, Date.now());
+  rawCountersPublished = state !== undefined;
 }
 
 class metrics extends Resource {
@@ -623,6 +713,7 @@ class metrics extends Resource {
       }
     }
 
+    await setRawCounters();
     const output = await generateMetricsFromAnalytics(notFast);
     const prom_results = await Prometheus.register.metrics();
 

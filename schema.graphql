@@ -2,3 +2,7 @@ type PrometheusExporterSettings @table {
   name: Any @primaryKey,
   value: Any
 }
+type PrometheusExporterRawCounters @table(replicate: false) {
+  node: String @primaryKey,
+  state: String
+}
