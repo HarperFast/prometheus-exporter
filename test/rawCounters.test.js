@@ -374,6 +374,20 @@ describe("ingest", () => {
 });
 
 describe("persisted state", () => {
+  it("keeps the larger gap when two writers saved the same mark", async () => {
+    const saved = (gapSeconds) =>
+      JSON.stringify({ ...emptyState(), highWaterMark: T0, gapSeconds });
+    for (const gaps of [
+      [5, 9],
+      [9, 5],
+    ]) {
+      const states = stateTable();
+      await states.put({ id: "node-a/w0", state: saved(gaps[0]) });
+      await states.put({ id: "node-a/w1", state: saved(gaps[1]) });
+      assert.equal((await readState(states, "node-a")).gapSeconds, 9);
+    }
+  });
+
   it("is stored as JSON text, so Harper 4's tracked records can't hide its fields", async () => {
     const states = stateTable(T0 - 1);
     await ingest(ingestArgs(stream(T0, 5), states, T0 + 20000));

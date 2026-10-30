@@ -170,10 +170,18 @@ async function readRows(stateTable, node) {
   return rows;
 }
 
+// Writers that fold the same reports reach the same mark and counters, but each charges gaps from
+// its own clock, so a tie keeps the larger gap and the published gap never drops
 function newest(rows) {
   let latest;
   for (const { state } of rows)
-    if (state !== undefined && !(state.highWaterMark <= latest?.highWaterMark))
+    if (
+      state !== undefined &&
+      (latest === undefined ||
+        state.highWaterMark > latest.highWaterMark ||
+        (state.highWaterMark === latest.highWaterMark &&
+          state.gapSeconds > latest.gapSeconds))
+    )
       latest = state;
   return latest;
 }
