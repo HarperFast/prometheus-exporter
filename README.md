@@ -79,7 +79,7 @@ scrape_configs:
 We define a custom `metrics_path` to tell Prometheus where to access the Harper Exporter path.  You can also see we added a label for our target, we recommend doing similar for your configuration to allow for filtering between instance metrics.
 
 ## Exporter Settings
-Metric access is controlled by three settings that can be configured using the [REST](https://docs.harperdb.io/docs/developers/rest) endpoint for `prometheus_exporter/PrometheusExporterSettings`. The user used to authenticate these REST requests must have write access to the table `PrometheusExporterSettings`:
+Metric access is controlled by these settings that can be configured using the [REST](https://docs.harperdb.io/docs/developers/rest) endpoint for `prometheus_exporter/PrometheusExporterSettings`. The user used to authenticate these REST requests must have write access to the table `PrometheusExporterSettings`:
 1. `forceAuthorization`
   * `true` or `false`. If true, you must authenticate with Harper in order to access the metrics endpoint `/prometheus_exporter/metrics`
 2. `authorizedUsers`
@@ -136,6 +136,10 @@ Metric access is controlled by three settings that can be configured using the [
    }
       ```
 
+
+4. `rawCounters`
+   * `true` or `false` (default: unset, which is off). If true, the exporter also publishes the measured counters described in
+     [Measured counters](#measured-counters-rawcounters). Every node picks the setting up within 15 seconds; no restart is needed.
 
 ### Example REST commands
 ```bash
@@ -243,6 +247,55 @@ cluster overcounts writes.
 | `cluster_disconnected_dbs`               | Count of disconnected dbs by node.                                                                                                                                                                                                                                                |
 | `replication_backlog`                    | Number of pending replication consumers by origin, database, & table (for NATS replication only).                                                                                                                                                                                 |
 | `replication_backlog_time`               | The difference in milliseconds between lastReceivedRemoteTime and lastReceivedLocalTime for each of the node's dbs (for Harper replication only).                                                                                                                                 |                                                                                                                                                              
+
+### Measured counters (`rawCounters`)
+The gauges above show one roll-up record from `system.hdb_analytics` per scrape, so their values can't be added up into
+reliable totals. With `rawCounters` enabled, worker 0 of each node reads Harper's per-second raw reports
+(`system.hdb_raw_analytics`) every 15 seconds. It adds each report to cumulative counters once, and saves the counters
+and a high-water mark (the id of the last report it counted) in the `PrometheusExporterRawCounters` table
+(not replicated). Each worker 0 saves only its own row, so after a restart a node briefly has two; scrapes report the
+one with the highest mark, and rows not saved for an hour are removed. Every scrape, on any thread, reports those saved values. Counting starts when the
+setting is first enabled; earlier reports are not read back, since `increase()` treats a counter's first sample as its
+baseline anyway.
+
+Enable it once; the setting replicates to every node:
+
+```
+curl -X PUT http://localhost:9926/prometheus_exporter/PrometheusExporterSettings/rawCounters \
+  -u USERNAME:PASSWORD -H 'Content-Type: application/json' \
+  -d '{"name": "rawCounters", "value": true}'
+```
+
+Every counter carries one label, `node` (the Harper hostname), and starts at 0, so `increase()` sees the first traffic.
+Open MQTT connections are already reported by `open_connections{protocol="mqtt"}` above.
+
+| Metric                                   | Type    | Source                                           | Description                                                                              |
+|------------------------------------------|---------|--------------------------------------------------|------------------------------------------------------------------------------------------|
+| `harper_mqtt_connects_total`             | counter | `connection`/`mqtt`/`connect` `count`            | MQTT CONNECT attempts.                                                                   |
+| `harper_mqtt_connects_succeeded_total`   | counter | `connection`/`mqtt`/`connect` `total`            | CONNECTs that Harper accepted with a CONNACK.                                            |
+| `harper_mqtt_disconnects_total`          | counter | `connection`/`mqtt`/`disconnect` `count`         | MQTT connections closed, clean or not.                                                   |
+| `harper_mqtt_disconnects_clean_total`    | counter | `connection`/`mqtt`/`disconnect` `total`         | Connections the client closed with a DISCONNECT packet.                                  |
+| `harper_mqtt_subscribes_total`           | counter | `bytes-received`, `method` `subscribe*`, `count` | SUBSCRIBE packets received. Harper doesn't record whether each subscription was granted. |
+| `harper_mqtt_bytes_sent_total`           | counter | `bytes-sent`, type `mqtt`, `count × mean`        | MQTT bytes delivered to clients (whole packets).                                         |
+| `harper_mqtt_bytes_received_total`       | counter | `bytes-received`, type `mqtt`, `count × mean`    | MQTT bytes received from clients.                                                        |
+| `harper_exporter_raw_lag_seconds`        | gauge   |                                                  | Age of the newest report counted; it stays near 15–20 s when healthy. A negative value means the clock went back. |
+| `harper_exporter_raw_gap_seconds_total`  | counter |                                                  | Upper bound on time whose raw reports may have been deleted (after `analytics.rawRetentionMs`, 1 h by default) before they were counted. It also includes time Harper was down. It moves when reports resume after the gap, not during it. |
+
+Each node counts only the traffic it served, so sum across nodes. MQTT bytes delivered per day, cluster-wide, and per
+node per hour:
+
+```promql
+sum(increase(harper_mqtt_bytes_sent_total[1d]))
+sum by (node) (increase(harper_mqtt_bytes_sent_total[1h]))
+```
+
+For calendar days in Grafana, use a `1d` interval with the dashboard's time zone, or `increase(...[1d])` evaluated at midnight.
+Alert if `increase(harper_exporter_raw_gap_seconds_total[1h]) > 0`, `harper_exporter_raw_lag_seconds > 120` or
+`harper_exporter_raw_lag_seconds < 0`. Any of these means some traffic may be missing from the counters.
+
+Disabling the setting stops ingest but keeps the saved rows. Re-enabling resumes from the saved mark; a disable longer
+than the raw retention is charged to the gap counter. Each pass reads at most 2000 reports, about 133 a second, which
+covers a node with up to roughly 130 threads reporting every second.
 
 A complete sample response of `/metrics`:
 ```text
