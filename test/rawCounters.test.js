@@ -393,6 +393,14 @@ describe("persisted state", () => {
       }),
     ],
     [
+      "not numeric",
+      JSON.stringify({
+        ...emptyState(),
+        highWaterMark: T0,
+        counters: { ...emptyState().counters, harper_mqtt_connects_total: "7" },
+      }),
+    ],
+    [
       "missing a family",
       JSON.stringify({ highWaterMark: T0, gapSeconds: 0, counters: {} }),
     ],

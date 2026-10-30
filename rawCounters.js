@@ -145,10 +145,11 @@ function parseState(json) {
   } catch {
     return undefined;
   }
+  const count = (value) => Number.isFinite(value) && value >= 0;
   const valid =
     Number.isFinite(state?.highWaterMark) &&
-    state.gapSeconds >= 0 &&
-    COUNTER_NAMES.every((name) => state.counters?.[name] >= 0);
+    count(state.gapSeconds) &&
+    COUNTER_NAMES.every((name) => count(state.counters?.[name]));
   return valid ? state : undefined;
 }
 
