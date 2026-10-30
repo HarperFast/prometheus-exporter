@@ -11,6 +11,8 @@ const ENTRIES_PER_YIELD = 2000;
 // Busy threads report about every second, so a report this close to the mark means nothing between
 // them was deleted, even when both are older than the retention cutoff
 const CONTIGUOUS_MS = 15000;
+// Far longer than any rolling restart, so the row deleted is never one another worker 0 is still saving
+const STALE_ROW_MS = 3600000;
 
 export const COUNTER_NAMES = [
   "harper_mqtt_connects_total",
@@ -75,7 +77,7 @@ function startFold(state) {
 
 // The mark moves only once the whole report is folded, so yielding mid-report is safe
 function* foldReport(next, report, { now, retentionMs }) {
-  if (!report || report.id <= next.highWaterMark) return;
+  if (!Number.isFinite(report?.id) || report.id <= next.highWaterMark) return;
   if (!next.gapChecked) {
     const lostUntil = Math.min(now - retentionMs, report.id);
     if (
@@ -107,7 +109,9 @@ function finishFold({
 
 export function foldReports(state, reports, options) {
   const next = startFold(state);
-  const ordered = [...reports].sort((left, right) => left?.id - right?.id);
+  const ordered = reports
+    .filter((report) => Number.isFinite(report?.id))
+    .sort((left, right) => left.id - right.id);
   for (const report of ordered)
     for (const _ of foldReport(next, report, options));
   return finishFold(next);
@@ -133,8 +137,7 @@ export function rawCounterPublisher({ counters, gap, lag }) {
 
 // JSON text, because Harper 4 decodes nested record objects as tracked objects whose fields
 // spreading would drop
-export async function readState(stateTable, node) {
-  const json = (await stateTable.get(node))?.state;
+function parseState(json) {
   if (typeof json !== "string") return undefined;
   let state;
   try {
@@ -149,16 +152,65 @@ export async function readState(stateTable, node) {
   return valid ? state : undefined;
 }
 
+// Each worker 0 saves only its own row, so a retiring one still mid-pass during a rolling restart
+// can't overwrite a newer total; readers take the row with the highest mark
+async function readRows(stateTable, node) {
+  const rows = [];
+  for await (const row of await stateTable.search({
+    conditions: [
+      { attribute: "id", comparator: "starts_with", value: `${node}/` },
+    ],
+  }))
+    rows.push({
+      id: row.id,
+      savedAt: row.savedAt,
+      state: parseState(row.state),
+    });
+  return rows;
+}
+
+function newest(rows) {
+  let latest;
+  for (const { state } of rows)
+    if (state !== undefined && !(state.highWaterMark <= latest?.highWaterMark))
+      latest = state;
+  return latest;
+}
+
+export async function readState(stateTable, node) {
+  return newest(await readRows(stateTable, node));
+}
+
+async function save(stateTable, id, state, rows, now) {
+  await stateTable.put({ id, savedAt: now, state: JSON.stringify(state) });
+  for (const row of rows)
+    if (
+      row.id !== id &&
+      !(row.savedAt > now - STALE_ROW_MS) &&
+      !(row.state?.highWaterMark > state.highWaterMark)
+    )
+      await stateTable.delete(row.id);
+}
+
 const yieldToEventLoop = () => new Promise((resolve) => setImmediate(resolve));
 
 // The first pass only records where to start: increase() takes a counter's first sample as its
 // baseline, so a backlog read then would be wasted
-export async function ingest({ rawTable, stateTable, node, now, retentionMs }) {
-  const state = await readState(stateTable, node);
+export async function ingest({
+  rawTable,
+  stateTable,
+  node,
+  writer,
+  now,
+  retentionMs,
+}) {
+  const id = `${node}/${writer}`;
+  const rows = await readRows(stateTable, node);
+  const state = newest(rows);
   const end = now - SETTLE_MS;
   if (state === undefined) {
     const started = { ...emptyState(), highWaterMark: end };
-    await stateTable.put({ node, state: JSON.stringify(started) });
+    await save(stateTable, id, started, rows, now);
     return started;
   }
   const results = await rawTable.search({
@@ -178,13 +230,7 @@ export async function ingest({ rawTable, stateTable, node, now, retentionMs }) {
   for await (const report of results)
     for (const _ of foldReport(next, report, { now, retentionMs }))
       await yieldToEventLoop();
-  const folded = next.reportsFolded > 0;
   const saved = finishFold(next);
-  if (!folded) return saved;
-  // A retiring worker 0 can still be mid-pass while its replacement saves a newer one
-  const latest = await readState(stateTable, node);
-  if (latest !== undefined && latest.highWaterMark >= saved.highWaterMark)
-    return latest;
-  await stateTable.put({ node, state: JSON.stringify(saved) });
+  if (next.reportsFolded > 0) await save(stateTable, id, saved, rows, now);
   return saved;
 }

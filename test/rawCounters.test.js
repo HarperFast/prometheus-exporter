@@ -107,17 +107,23 @@ function stateTable(startAt) {
   const records = new Map();
   const table = {
     puts: 0,
-    async get(id) {
-      return records.get(id);
+    records,
+    async search({ conditions: [{ value: prefix }] }) {
+      return [...records.values()]
+        .filter((record) => record.id.startsWith(prefix))
+        .map((record) => structuredClone(record));
     },
     async put(record) {
       table.puts++;
-      records.set(record.node, structuredClone(record));
+      records.set(record.id, structuredClone(record));
+    },
+    async delete(id) {
+      records.delete(id);
     },
   };
   if (startAt !== undefined)
-    records.set("node-a", {
-      node: "node-a",
+    records.set("node-a/seed", {
+      id: "node-a/seed",
       state: JSON.stringify({ ...emptyState(), highWaterMark: startAt }),
     });
   return table;
@@ -128,6 +134,7 @@ const ingestArgs = (rows, states, now) => ({
   rawTable: rawTable(rows),
   stateTable: states,
   node: "node-a",
+  writer: "w1",
   now,
   retentionMs: HOUR,
 });
@@ -156,6 +163,16 @@ describe("foldReports", () => {
     const { counters } = emptyState();
     assert.deepEqual(Object.keys(counters), COUNTER_NAMES);
     assert.ok(COUNTER_NAMES.every((name) => counters[name] === 0));
+  });
+
+  it("skips reports without a numeric id", () => {
+    const reports = stream(T0, 2);
+    const state = foldReports(
+      emptyState(),
+      [null, { metrics: reports[0].metrics }, ...reports],
+      foldOptions,
+    );
+    assert.deepEqual(state, foldReports(emptyState(), reports, foldOptions));
   });
 
   it("counts every report once however the reads are split or overlap", () => {
@@ -289,26 +306,44 @@ describe("ingest", () => {
     assert.equal(state.highWaterMark, T0 + 1000.5);
   });
 
-  it("never overwrites a newer pass saved by another worker 0 during a rolling restart", async () => {
+  it("never lets a retiring worker 0 roll back a newer pass during a rolling restart", async () => {
     const rows = stream(T0, 30);
     const states = stateTable(T0 - 1);
+    const seed = await states.search({ conditions: [{ value: "node-a/" }] });
     const newer = await ingest(ingestArgs(rows, states, T0 + 40000));
-    const get = states.get;
+    const search = states.search;
     let reads = 0;
-    states.get = async (id) =>
-      reads++ === 0
-        ? {
-            node: "node-a",
-            state: JSON.stringify({ ...emptyState(), highWaterMark: T0 - 1 }),
-          }
-        : get(id);
-    const putsBefore = states.puts;
-    await ingest(ingestArgs(rows.slice(0, 20), states, T0 + 20000));
-    assert.equal(states.puts, putsBefore);
-    assert.deepEqual(
-      (await readState({ get }, "node-a")).counters,
-      newer.counters,
-    );
+    states.search = async (query) => (reads++ === 0 ? seed : search(query));
+    await ingest({
+      ...ingestArgs(rows.slice(0, 20), states, T0 + 20000),
+      writer: "w0",
+    });
+    states.search = search;
+    assert.deepEqual(await readState(states, "node-a"), newer);
+    await ingest(ingestArgs(stream(T0 + 30000, 5), states, T0 + 45000));
+    assert.deepEqual([...states.records.keys()].sort(), [
+      "node-a/w0",
+      "node-a/w1",
+    ]);
+    await ingest(ingestArgs(stream(T0 + HOUR, 5), states, T0 + HOUR + 50000));
+    assert.deepEqual([...states.records.keys()], ["node-a/w1"]);
+  });
+
+  it("never deletes a row another worker 0 may still be advancing", async () => {
+    const rows = stream(T0, 30);
+    const states = stateTable(T0 - 1);
+    await ingest(ingestArgs(rows.slice(0, 10), states, T0 + 10000));
+    const before = await states.search({ conditions: [{ value: "node-a/" }] });
+    const newer = await ingest(ingestArgs(rows, states, T0 + 40000));
+    const search = states.search;
+    let reads = 0;
+    states.search = async (query) => (reads++ === 0 ? before : search(query));
+    await ingest({
+      ...ingestArgs(rows.slice(0, 30), states, T0 + 20000),
+      writer: "w0",
+    });
+    states.search = search;
+    assert.deepEqual(await readState(states, "node-a"), newer);
   });
 
   it("yields to the event loop inside one wide report", async () => {
@@ -342,7 +377,7 @@ describe("persisted state", () => {
   it("is stored as JSON text, so Harper 4's tracked records can't hide its fields", async () => {
     const states = stateTable(T0 - 1);
     await ingest(ingestArgs(stream(T0, 5), states, T0 + 20000));
-    assert.equal(typeof (await states.get("node-a")).state, "string");
+    assert.equal(typeof states.records.get("node-a/w1").state, "string");
     const restored = await readState(states, "node-a");
     assert.equal(restored.counters.harper_mqtt_connects_total, 100);
   });
@@ -364,10 +399,11 @@ describe("persisted state", () => {
   ]) {
     it(`starts over when the saved row is ${label}`, async () => {
       const states = stateTable();
-      await states.put({ node: "node-a", state: json });
+      await states.put({ id: "node-a/w0", state: json });
       assert.equal(await readState(states, "node-a"), undefined);
       const state = await ingest(ingestArgs(stream(T0, 5), states, T0 + 20000));
       assert.equal(state.highWaterMark, T0 + 20000 - SETTLE_MS);
+      assert.deepEqual([...states.records.keys()], ["node-a/w1"]);
     });
   }
 });

@@ -3,6 +3,7 @@ type PrometheusExporterSettings @table {
   value: Any
 }
 type PrometheusExporterRawCounters @table(replicate: false) {
-  node: String @primaryKey,
+  id: String @primaryKey,
+  savedAt: Float,
   state: String
 }

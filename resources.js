@@ -1,5 +1,6 @@
 /* global logger */
 
+import { randomUUID } from "node:crypto";
 import process from "node:process";
 import Prometheus from "prom-client";
 import { isFromLocalNode, resolveLocalNodeId } from "./analyticsOrigin.js";
@@ -359,6 +360,7 @@ const publishRawCounters = rawCounterPublisher({
 });
 
 if (server.workerIndex == 0) {
+  const rawCounterWriter = randomUUID();
   let ingesting = false;
   setInterval(async () => {
     if (ingesting) return;
@@ -369,6 +371,7 @@ if (server.workerIndex == 0) {
           rawTable: databases.system.hdb_raw_analytics,
           stateTable: PrometheusExporterRawCounters,
           node: server.hostname,
+          writer: rawCounterWriter,
           now: Date.now(),
           retentionMs: rawRetentionMs(analytics),
         });

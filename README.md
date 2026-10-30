@@ -253,7 +253,8 @@ The gauges above show one roll-up record from `system.hdb_analytics` per scrape,
 reliable totals. With `rawCounters` enabled, worker 0 of each node reads Harper's per-second raw reports
 (`system.hdb_raw_analytics`) every 15 seconds. It adds each report to cumulative counters once, and saves the counters
 and a high-water mark (the id of the last report it counted) in the `PrometheusExporterRawCounters` table
-(not replicated, one row per node). Every scrape, on any thread, reports those saved values. Counting starts when the
+(not replicated). Each worker 0 saves only its own row, so after a restart a node briefly has two; scrapes report the
+one with the highest mark, and rows not saved for an hour are removed. Every scrape, on any thread, reports those saved values. Counting starts when the
 setting is first enabled; earlier reports are not read back, since `increase()` treats a counter's first sample as its
 baseline anyway.
 
@@ -292,7 +293,7 @@ For calendar days in Grafana, use a `1d` interval with the dashboard's time zone
 Alert if `increase(harper_exporter_raw_gap_seconds_total[1h]) > 0`, `harper_exporter_raw_lag_seconds > 120` or
 `harper_exporter_raw_lag_seconds < 0`. Any of these means some traffic may be missing from the counters.
 
-Disabling the setting stops ingest but keeps the saved row. Re-enabling resumes from the saved mark; a disable longer
+Disabling the setting stops ingest but keeps the saved rows. Re-enabling resumes from the saved mark; a disable longer
 than the raw retention is charged to the gap counter. Each pass reads at most 2000 reports, about 133 a second, which
 covers a node with up to roughly 130 threads reporting every second.
 
