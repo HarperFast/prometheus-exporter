@@ -173,4 +173,57 @@ void suite('prometheus-exporter', (ctx: ContextWithHarper) => {
     strictEqual(body.name, 'forceAuthorization');
     strictEqual(body.value, true);
   });
+
+  void test('rawCounters off publishes no raw counter samples', async () => {
+    const text = await extractMetricsText(await authFetch(ctx, '/prometheus_exporter/metrics'));
+    strictEqual(sampleTotal(text, 'harper_mqtt_connects_total'), undefined);
+  });
+
+  void test('rawCounters on publishes every counter family from zero', { timeout: 180000 }, async () => {
+    const res = await authFetch(ctx, '/prometheus_exporter/PrometheusExporterSettings/rawCounters', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'rawCounters', value: true }),
+    });
+    ok([200, 204].includes(res.status), `Unexpected status ${res.status}`);
+    const families = [
+      'harper_mqtt_connects_total',
+      'harper_mqtt_connects_succeeded_total',
+      'harper_mqtt_disconnects_total',
+      'harper_mqtt_disconnects_clean_total',
+      'harper_mqtt_subscribes_total',
+      'harper_mqtt_bytes_sent_total',
+      'harper_mqtt_bytes_received_total',
+      'harper_exporter_raw_gap_seconds_total',
+    ];
+    let text = '';
+    for (let attempt = 0; attempt < 30; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      text = await extractMetricsText(await authFetch(ctx, '/prometheus_exporter/metrics'));
+      if (sampleTotal(text, 'harper_mqtt_connects_total') !== undefined) break;
+    }
+    for (const family of families) {
+      const total = sampleTotal(text, family);
+      ok(total !== undefined && total >= 0, `Expected a ${family} sample once ingest has run`);
+    }
+    // Harper keeps writing raw reports while it runs, so lag stays low only if passes after the
+    // bootstrap search, fold and save them
+    await new Promise((resolve) => setTimeout(resolve, 40000));
+    await authFetch(ctx, '/prometheus_exporter/metrics');
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const lag = sampleTotal(
+      await extractMetricsText(await authFetch(ctx, '/prometheus_exporter/metrics')),
+      'harper_exporter_raw_lag_seconds',
+    );
+    ok(lag !== undefined && lag < 35, `Expected ingest to keep up, lag was ${lag}`);
+  });
 });
+
+function sampleTotal(text: string, name: string): number | undefined {
+  let total: number | undefined;
+  for (const line of text.split('\n')) {
+    if (line.startsWith(`${name}{`) || line.startsWith(`${name} `))
+      total = (total ?? 0) + Number(line.slice(line.lastIndexOf(' ') + 1));
+  }
+  return total;
+}
